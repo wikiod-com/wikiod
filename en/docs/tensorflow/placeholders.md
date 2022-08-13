@@ -1,0 +1,123 @@
+---
+title: "Placeholders"
+slug: "placeholders"
+draft: false
+images: []
+weight: 9867
+type: docs
+toc: true
+---
+
+## Parameters
+| Parameter | Details |
+| ------ | ------ |
+| data type (dtype)   | specifically one of the data types provided by the tensorflow package. E.g. `tensorflow.float32`   |
+| data shape (shape) | Dimensions of placeholder as list or tuple. `None` can be used for dimensions that are unknown. E.g. (None,30) would define a (? x 30) dimension placeholder|
+| name (name) | A name for the operation (optional).
+
+
+## Basics of Placeholders
+[Placeholders][1] allow you to feed values into a tensorflow graph. Aditionally They allow you to specify constraints regarding the dimensions and data type of the values being fed in. As such they are useful when creating a neural network to feed new training examples. 
+
+The following example declares a placeholder for a 3 by 4 tensor with elements that are (or can be typecasted to) 32 bit floats. 
+
+```python
+a = tf.placeholder(tf.float32, shape=[3,4], name='a')
+```
+
+Placeholders will not contain any values on their own, so it is important to feed them with values when running a session otherwise you will get an error message. This can be done using the `feed_dict` argument when calling `session.run()`, eg: 
+
+```python
+# run the graph up to node b, feeding the placeholder `a` with values in my_array 
+session.run(b, feed_dict={a: my_array})
+```
+
+Here is a simple example showing the entire process of declaring and feeding a placeholer. 
+
+```python
+import tensorflow as tf
+import numpy as np
+
+# Build a graph
+graph = tf.Graph()
+with graph.as_default():
+    # declare a placeholder that is 3 by 4 of type float32
+    a = tf.placeholder(tf.float32, shape=(3, 4), name='a')
+    
+    # Perform some operation on the placeholder
+    b = a * 2
+    
+# Create an array to be fed to `a`
+input_array = np.ones((3,4))
+
+# Create a session, and run the graph
+with tf.Session(graph=graph) as session:
+    # run the session up to node b, feeding an array of values into a
+    output = session.run(b, feed_dict={a: input_array})
+    print(output)
+```
+
+The placeholder takes a 3 by 4 array of ones, and that tensor is then multiplied by 2 at node b, wich then returns and prints out the following: 
+
+    [[ 2.  2.  2.  2.]
+     [ 2.  2.  2.  2.]
+     [ 2.  2.  2.  2.]]
+
+
+  [1]: https://www.tensorflow.org/api_docs/python/tf/placeholder
+
+## Placeholder with Default
+Often one wants to intermittently run one or more validation batches during the course of training a deep network. Typically the training data are fed by a queue while the validation data might be passed through the `feed_dict` parameter in `sess.run()`. `tf.placeholder_with_default()` is designed to work well in this situation:
+
+    import numpy as np
+    import tensorflow as tf
+    
+    IMG_SIZE = [3, 3]
+    BATCH_SIZE_TRAIN = 2
+    BATCH_SIZE_VAL = 1
+    
+    def get_training_batch(batch_size):
+        ''' training data pipeline '''
+        image = tf.random_uniform(shape=IMG_SIZE)
+        label = tf.random_uniform(shape=[])
+        min_after_dequeue = 100
+        capacity = min_after_dequeue + 3 * batch_size
+        images, labels = tf.train.shuffle_batch(
+            [image, label], batch_size=batch_size, capacity=capacity,
+            min_after_dequeue=min_after_dequeue)
+        return images, labels
+    
+    # define the graph
+    images_train, labels_train = get_training_batch(BATCH_SIZE_TRAIN)
+    image_batch = tf.placeholder_with_default(images_train, shape=None)
+    label_batch = tf.placeholder_with_default(labels_train, shape=None)
+    new_images = tf.mul(image_batch, -1)
+    new_labels = tf.mul(label_batch, -1)
+    
+    # start a session
+    with tf.Session() as sess:
+        sess.run(tf.initialize_all_variables())
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    
+        # typical training step where batch data are drawn from the training queue
+        py_images, py_labels = sess.run([new_images, new_labels])
+        print('Data from queue:')
+        print('Images: ', py_images)  # returned values in range [-1.0, 0.0]
+        print('\nLabels: ', py_labels) # returned values [-1, 0.0]
+
+        # typical validation step where batch data are supplied through feed_dict
+        images_val = np.random.randint(0, 100, size=np.hstack((BATCH_SIZE_VAL, IMG_SIZE)))
+        labels_val = np.ones(BATCH_SIZE_VAL)
+        py_images, py_labels = sess.run([new_images, new_labels],
+                          feed_dict={image_batch:images_val, label_batch:labels_val})
+        print('\n\nData from feed_dict:')
+        print('Images: ', py_images) # returned values are integers in range [-100.0, 0.0]
+        print('\nLabels: ', py_labels) # returned values are -1.0
+    
+        coord.request_stop()
+        coord.join(threads)
+    
+In this example `image_batch` and `label_batch` are generated by `get_training_batch()` unless the corresponding values are passed as the `feed_dict` parameter during a call to `sess.run()`.
+
+
